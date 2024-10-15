@@ -37,7 +37,7 @@ def main():
                     modified_wordlist.extend(word.split())
             
                 word_count = 0
-                for words in wordlist:
+                for words in modified_wordlist:
                     word_count += 1               
                     if len(words) > 1:
                         if words not in inverted_index_docs.keys():
