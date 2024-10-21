@@ -5,11 +5,71 @@ from time import sleep
 from math import log
 import pandas
 
+
 directory = './full_docs_small'
 extension = '.txt'
 
+
 def intersection(lst1, lst2):
     return list(set(lst1).intersection(set(lst2)))
+
+
+def smart_split(word):
+    # List to hold the split words
+    split_words = []
+    current_word = ""
+
+    # Iterate over each character in the word
+    for i, char in enumerate(word):
+        if char.isupper():
+            if i > 0 and word[i-1].islower():
+                # If the previous character is lowercase, split here
+                split_words.append(current_word)
+                current_word = char
+            elif i < len(word) - 1 and word[i+1].islower():
+                # If the next character is lowercase, split here
+                split_words.append(current_word)
+                current_word = char
+            else:
+                # Otherwise, just add the character to the current word
+                current_word += char
+        else:
+            # If the character is not uppercase, continue adding to current word
+            current_word += char
+    
+    # Append the last processed word
+    if current_word:
+        split_words.append(current_word)
+    
+    return split_words
+
+
+# Function to handle uppercase word splits, underscores, hyphens, numbers and apostrophe's
+def preprocess(text):
+        
+    # Step 1: Replace underscores with spaces
+    text = text.replace('_', ' ')
+
+    # Step 2: Extract words using your existing regex
+    wordlist = re.findall(r"\b\w+(?:[']\w+)*\b", text)
+
+    # Step 3: Process the word list, keeping only alphabetic characters in words
+    cleaned_wordlist = []
+    
+    for word in wordlist:
+        # Keep only alphabetic characters
+        cleaned_word = ''.join([char for char in word if char.isalpha() or char == "'"])
+        
+        # If the cleaned word is not empty, process it using the smart split logic
+        if cleaned_word:
+            split_result = smart_split(cleaned_word)
+            cleaned_wordlist.extend(split_result)
+
+    # Step 4: Filter out any empty strings from the final list
+    cleaned_wordlist = [word for word in cleaned_wordlist if word]
+
+    # Return the cleaned word list without empty strings
+    return(cleaned_wordlist)
 
 def main():
     inverted_index_docs = {}
@@ -18,24 +78,12 @@ def main():
     for file in os.listdir(directory):
         file_count += 1
         if file.endswith(extension):
-            #print(file)
+
             with open('full_docs_small/' + file, 'r', encoding='utf-8') as document:
                 text = document.read()
-                wordlist =  re.findall(r'\b\w+\b', text)
-
-                # Modify words in the wordslist:
-                modified_wordlist = []
                 
-                for word in wordlist:
-                    # Uppercase split
-                    # Example: "ProblemsPesticides" -> "Problems", "Pesticides"
-                    word = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', word)
-                    # Number split
-                    # Example "hyper10" -> "hyper", "10"
-                    word = re.sub(r'(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])', ' ', word)
-                    word = word.lower()
-                    # Add the modified words to the list
-                    modified_wordlist.extend(word.split())
+                # This is where we modify the entire text to our liking
+                modified_wordlist = preprocess(text=text)
 
                 filename = os.path.basename(document.name)
                 document_map[filename] = modified_wordlist
