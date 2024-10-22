@@ -2,17 +2,48 @@ from collections import defaultdict
 import os
 import re
 from time import sleep
-from math import log
+from math import log, sqrt
 import pandas
-
+import numpy as np
 
 directory = './full_docs_small'
 extension = '.txt'
+radius = 10
 
+def cosine_similarity(vec_a, vec_b, file, query):
+    dot_product = 0
+    magnitude_a = 0
+    magnitude_b = 0
+
+    new_vec_b = {}
+    for word in vec_a.keys():
+        if word in vec_b:
+            dot_product += vec_a[word] * vec_b[word]
+            new_vec_b[word] = vec_b[word]
+
+    for value in vec_a.values():
+        magnitude_a += value**2
+    for value in new_vec_b.values():
+        magnitude_b += value**2
+
+    if magnitude_a == 0 or magnitude_b == 0:
+        return 0
+
+    return dot_product/ (sqrt(magnitude_a) * sqrt(magnitude_b))                
+
+def normalize(vector):
+    norm = 0
+    for value in vector:
+        norm += value**2
+    norm = sqrt(norm)
+    if norm == 0:
+        return vector
+    for i in range(0, len(vector)):
+        vector[i] = vector[i]/norm    
+    return vector
 
 def intersection(lst1, lst2):
     return list(set(lst1).intersection(set(lst2)))
-
 
 def smart_split(word):
     # List to hold the split words
@@ -71,6 +102,7 @@ def preprocess(text):
     # Return the cleaned word list without empty strings
     return(cleaned_wordlist)
 
+
 def main():
     inverted_index_docs = {}
     file_count = 0
@@ -78,108 +110,109 @@ def main():
     for file in os.listdir(directory):
         file_count += 1
         if file.endswith(extension):
-
+            #print(file)
             with open('full_docs_small/' + file, 'r', encoding='utf-8') as document:
                 text = document.read()
-                
-                # This is where we modify the entire text to our liking
                 modified_wordlist = preprocess(text=text)
-
+                new_wordlist = []
+                for word in modified_wordlist:
+                    word = word.lower()
+                    new_wordlist.append(word)
+                modified_wordlist = new_wordlist    
                 filename = os.path.basename(document.name)
                 document_map[filename] = modified_wordlist
-
                 word_count = 0
                 for words in modified_wordlist:
                     word_count += 1               
                     if words not in inverted_index_docs.keys():
                         inverted_index_docs[words] = {}
                     if file not in inverted_index_docs[words].keys():    
-                        inverted_index_docs[words][file] = [word_count]
-                    else:
-                        inverted_index_docs[words][file].append(word_count)
-                #print(inverted_index_docs) 
-
+                        inverted_index_docs[words][file] = [word_count] 
+                    inverted_index_docs[words][file].append(word_count)
+                  
     file = pandas.read_excel('dev_small_queries.xlsx')
     query_numbers = file['Query number'].tolist()
     queries = file['Query'].tolist()
     new_queries = []
     for query in queries:
-        text = query.split()
-        modified_wordlist = []
-        for word in text:
-            word = re.sub(r'(?<=[A-Z])(?=[A-Z][a-z])', ' ', word)
-            word = re.sub(r'(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])', ' ', word)              
-            modified_wordlist.extend(word.split())
-        new_queries.append(modified_wordlist)
-    query_mapping = {}
-    index = 0
-    for query in new_queries:
-        current_query = []
-        cur_loop = 0       
-        for word in query:
-            
-            if word in inverted_index_docs.keys():
-                if len(current_query) == 0 and cur_loop == 0:
-                    current_query = list(inverted_index_docs[word].keys())
-                else:
-                    current_query = intersection(current_query, list(inverted_index_docs[word].keys()))
-            else:
-                current_query = []            
-            cur_loop += 1        
-      
-        query_mapping[query_numbers[index]] = current_query
-        if len(current_query) == 0:
-            query_mapping[query_numbers[index]] = '[]'
-        else:
-            query_mapping[query_numbers[index]] = current_query       
-        index += 1
-    with open("output_file.txt", "w") as file:
-    # Iterate over the dictionary
-        for key, value in query_mapping.items():
-        # Write each key-value pair to the file in a formatted way
-            file.write(f"{key}: {', '.join(map(str, value))}\n")
+        new_queries.append(preprocess(query))    
+    queries = new_queries
 
-    tf_idf_weighting = defaultdict(dict)
+    document_tf_idf = defaultdict(dict)
     for doc_id, tokens in document_map.items():
         tf = {}
         for word in tokens:
             if word not in tf:
                 tf[word] = 0
             tf[word] += 1
-        for word in tf.keys():
-            tf[word] /= len(tokens)
-            df = len(inverted_index_docs[word])
-            idf = log((file_count/ df + 1))
-            tf_idf = tf[word] * idf
-            tf_idf_weighting[doc_id][word] = tf_idf
 
-    # term_frequencies = {}
-    # for query in new_queries:
-    #     for word in query:
-    #         if word in inverted_index_docs.keys():
-    #             docmap = inverted_index_docs[word]
-    #             for docs in docmap.keys():
-    #                 if docs not in term_frequencies.keys():
-    #                     term_frequencies[docs] = {}
-    #                 term_frequencies[docs][word] = len(inverted_index_docs[word][docs])             
-    
-    # document_term_frequency = {}
-    # for word in inverted_index_docs.keys():
-    #     document_term_frequency[word] = len(inverted_index_docs[word])
+        for word, freq in tf.items():
+            tf = 1 + log(freq)
+            df = len(inverted_index_docs[word].keys())
+            idf = log(file_count/df)
+            document_tf_idf[doc_id][word] = tf * idf
+            
+    for doc_id in document_tf_idf.keys():
+        wordlist = []
+        normalizelist = []
+        for word in document_tf_idf[doc_id].keys():
+            wordlist.append(word)
+            normalizelist.append(document_tf_idf[doc_id][word])
+   
+        normalizelist = normalize(normalizelist)
+        for i in range(0, len(wordlist)):
+            document_tf_idf[doc_id][wordlist[i]] = normalizelist[i]
 
-    # inverse_document_frequency = {}
-    # for word in document_term_frequency.keys():    
-    #     inverse_document_frequency[word] = math.log10(file_count/document_term_frequency[word])
-    
-    # tf_idf_weighting = {}
-    # for doc in term_frequencies.keys():
-    #     tf_idf_weighting[doc] = {}
-    #     for word in document_term_frequency.keys():
-    #         tf = 1 + math.log10(term_frequencies[doc][word]) if word in term_frequencies[doc] else 0
-    #         tf_idf_weighting[doc][word] = tf
-
+    query_tf_idf = defaultdict(dict)
+    query_count = 0
+    for query in queries:
+        tf = {}
+        for word in query:
+            if word not in tf:
+                tf[word] = 0
+            tf[word] += 1          
+        for word, freq in tf.items():
+            tf = 1 + log(freq)
+            if word in inverted_index_docs:
+                df = len(inverted_index_docs[word].keys())
+                idf = log(file_count/df)
+            else:
+                idf = 0 
+            query_tf_idf[query_numbers[query_count]][word] = tf * idf
+        query_count += 1        
  
+    for query_id in query_tf_idf.keys():
+        wordlist = []
+        normalizelist = []
+        for word in query_tf_idf[query_id].keys():
+            wordlist.append(word)
+            normalizelist.append(query_tf_idf[query_id][word])
+        normalizelist = normalize(normalizelist)
+        for i in range(0, len(wordlist)):
+            query_tf_idf[query_id][wordlist[i]] = normalizelist[i]    
+
+    results = {}
+    for query in query_numbers:
+        query_list = query_tf_idf[query]
+        for doc_id in document_tf_idf.keys():
+            doc_list = document_tf_idf[doc_id]
+            similarity = cosine_similarity(query_list, doc_list, doc_id, query)
+            if similarity > 0:
+                if query not in results:
+                    results[query] = []
+                results[query].append([doc_id, similarity])
+
+    new_results = {}
+    for query in results.keys():
+        similarity_list = []
+        for similarity in results[query]:
+            similarity_list.append(similarity)
+        similarity_list.sort(key=lambda x: x[1], reverse=True)
+        if query == 1094578: #Je kan hier de query nummer vervangen om specifieke queries te checken of dit overeeenkomt met de beste file voor deze query
+            print(query)
+            print(similarity_list)
+            sleep(100)   
     return 0
 
 if __name__ == "__main__":
-    main()    
+    main()  
