@@ -5,6 +5,7 @@ from time import sleep
 from math import log, sqrt
 import pandas
 import numpy as np
+from preprocess import Preprocessor
 
 directory = './full_docs_small'
 extension = '.txt'
@@ -45,75 +46,19 @@ def normalize(vector):
 def intersection(lst1, lst2):
     return list(set(lst1).intersection(set(lst2)))
 
-def smart_split(word):
-    # List to hold the split words
-    split_words = []
-    current_word = ""
-
-    # Iterate over each character in the word
-    for i, char in enumerate(word):
-        if char.isupper():
-            if i > 0 and word[i-1].islower():
-                # If the previous character is lowercase, split here
-                split_words.append(current_word)
-                current_word = char
-            elif i < len(word) - 1 and word[i+1].islower():
-                # If the next character is lowercase, split here
-                split_words.append(current_word)
-                current_word = char
-            else:
-                # Otherwise, just add the character to the current word
-                current_word += char
-        else:
-            # If the character is not uppercase, continue adding to current word
-            current_word += char
-    
-    # Append the last processed word
-    if current_word:
-        split_words.append(current_word)
-    
-    return split_words
-
-
-# Function to handle uppercase word splits, underscores, hyphens, numbers and apostrophe's
-def preprocess(text):
-        
-    # Step 1: Replace underscores with spaces
-    text = text.replace('_', ' ')
-
-    # Step 2: Extract words using your existing regex
-    wordlist = re.findall(r"\b\w+(?:[']\w+)*\b", text)
-
-    # Step 3: Process the word list, keeping only alphabetic characters in words
-    cleaned_wordlist = []
-    
-    for word in wordlist:
-        # Keep only alphabetic characters
-        cleaned_word = ''.join([char for char in word if char.isalpha() or char == "'"])
-        
-        # If the cleaned word is not empty, process it using the smart split logic
-        if cleaned_word:
-            split_result = smart_split(cleaned_word)
-            cleaned_wordlist.extend(split_result)
-
-    # Step 4: Filter out any empty strings from the final list
-    cleaned_wordlist = [word for word in cleaned_wordlist if word]
-
-    # Return the cleaned word list without empty strings
-    return(cleaned_wordlist)
-
 
 def main():
     inverted_index_docs = {}
     file_count = 0
     document_map = {}
+    preprocessor = Preprocessor
     for file in os.listdir(directory):
         file_count += 1
         if file.endswith(extension):
             #print(file)
             with open('full_docs_small/' + file, 'r', encoding='utf-8') as document:
                 text = document.read()
-                modified_wordlist = preprocess(text=text)
+                modified_wordlist = preprocessor.preprocess(text)
                 new_wordlist = []
                 for word in modified_wordlist:
                     word = word.lower()
