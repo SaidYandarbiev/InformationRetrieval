@@ -3,6 +3,7 @@ import os
 import re
 from time import sleep
 from math import log, sqrt
+from math import log, sqrt
 import pandas
 import numpy as np
 from preprocess import Preprocessor
@@ -55,6 +56,7 @@ def main():
     for file in os.listdir(directory):
         file_count += 1
         if file.endswith(extension):
+            #print(file)
             #print(file)
             with open('full_docs_small/' + file, 'r', encoding='utf-8') as document:
                 text = document.read()
