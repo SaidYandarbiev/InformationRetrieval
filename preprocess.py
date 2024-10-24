@@ -5,6 +5,7 @@ import re
 nltk.download('stopwords')
 nltk.download('words')
 nltk.download('punkt')
+nltk.download('punkt_tab')
 
 
 class Preprocessor():

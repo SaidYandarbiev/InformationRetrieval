@@ -52,12 +52,10 @@ def main():
     inverted_index_docs = {}
     file_count = 0
     document_map = {}
-    preprocessor = Preprocessor
+    preprocessor = Preprocessor()
     for file in os.listdir(directory):
         file_count += 1
         if file.endswith(extension):
-            #print(file)
-            #print(file)
             with open('full_docs_small/' + file, 'r', encoding='utf-8') as document:
                 text = document.read()
                 modified_wordlist = preprocessor.preprocess(text)
@@ -82,7 +80,7 @@ def main():
     queries = file['Query'].tolist()
     new_queries = []
     for query in queries:
-        new_queries.append(preprocess(query))    
+        new_queries.append(preprocessor.preprocess(query))    
     queries = new_queries
 
     document_tf_idf = defaultdict(dict)
@@ -155,7 +153,7 @@ def main():
         for similarity in results[query]:
             similarity_list.append(similarity)
         similarity_list.sort(key=lambda x: x[1], reverse=True)
-        if query == 1094578: #Je kan hier de query nummer vervangen om specifieke queries te checken of dit overeeenkomt met de beste file voor deze query
+        if query == 1089273: #Je kan hier de query nummer vervangen om specifieke queries te checken of dit overeeenkomt met de beste file voor deze query
             print(query)
             print(similarity_list)
             sleep(100)   
