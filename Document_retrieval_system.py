@@ -22,12 +22,14 @@ def cosine_similarity(vec_a, vec_b, file, query):
         if word in vec_b:
             dot_product += vec_a[word] * vec_b[word]
             new_vec_b[word] = vec_b[word]
-
     for value in vec_a.values():
         magnitude_a += value**2
     for value in new_vec_b.values():
         magnitude_b += value**2
-
+    if (file == "output_590.txt" or file == "output_80.txt") and query == 1089273:
+        print(file)
+        print(magnitude_a)
+        print(magnitude_b)
     if magnitude_a == 0 or magnitude_b == 0:
         return 0
 
@@ -58,23 +60,18 @@ def main():
         if file.endswith(extension):
             with open('full_docs_small/' + file, 'r', encoding='utf-8') as document:
                 text = document.read()
-                modified_wordlist = preprocessor.preprocess(text)
-                new_wordlist = []
-                for word in modified_wordlist:
-                    word = word.lower()
-                    new_wordlist.append(word)
-                modified_wordlist = new_wordlist    
+                modified_wordlist = preprocessor.preprocess(text)    
                 filename = os.path.basename(document.name)
                 document_map[filename] = modified_wordlist
                 word_count = 0
                 for words in modified_wordlist:
-                    word_count += 1               
+                    word_count += 1             
                     if words not in inverted_index_docs.keys():
-                        inverted_index_docs[words] = {}
+                        inverted_index_docs[words] = {}    
                     if file not in inverted_index_docs[words].keys():    
-                        inverted_index_docs[words][file] = [word_count] 
-                    inverted_index_docs[words][file].append(word_count)
-                  
+                        inverted_index_docs[words][file] = 0
+                    inverted_index_docs[words][file] += 1
+
     file = pandas.read_excel('dev_small_queries.xlsx')
     query_numbers = file['Query number'].tolist()
     queries = file['Query'].tolist()
@@ -89,14 +86,12 @@ def main():
         for word in tokens:
             if word not in tf:
                 tf[word] = 0
-            tf[word] += 1
-
+            tf[word] += 1 
         for word, freq in tf.items():
             tf = 1 + log(freq)
             df = len(inverted_index_docs[word].keys())
             idf = log(file_count/df)
-            document_tf_idf[doc_id][word] = tf * idf
-            
+            document_tf_idf[doc_id][word] = tf * idf 
     for doc_id in document_tf_idf.keys():
         wordlist = []
         normalizelist = []
@@ -115,7 +110,7 @@ def main():
         for word in query:
             if word not in tf:
                 tf[word] = 0
-            tf[word] += 1          
+            tf[word] += 1 
         for word, freq in tf.items():
             tf = 1 + log(freq)
             if word in inverted_index_docs:
