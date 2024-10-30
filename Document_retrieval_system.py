@@ -1,16 +1,16 @@
 from collections import defaultdict
 import os
-import re
 from time import sleep
 from math import log, sqrt
 from math import log, sqrt
 import pandas
-import numpy as np
 from preprocess import Preprocessor
+import csv
 
 directory = './full_docs_small'
 extension = '.txt'
 radius = 10
+k = 10
 
 def cosine_similarity(vec_a, vec_b, file, query):
     dot_product = 0
@@ -148,11 +148,61 @@ def main():
         for similarity in results[query]:
             similarity_list.append(similarity)
         similarity_list.sort(key=lambda x: x[1], reverse=True)
-        if query == 1089273: #Je kan hier de query nummer vervangen om specifieke queries te checken of dit overeeenkomt met de beste file voor deze query
-            print(query)
-            print(similarity_list)
-            sleep(100)   
-    return 0
+        # if query == 1077002: #Je kan hier de query nummer vervangen om specifieke queries te checken of dit overeeenkomt met de beste file voor deze query
+        #     print(query)
+        #     print(similarity_list)
+        #     sleep(100) 
+        new_results[query] = similarity_list 
+    results = new_results
+    top_10_results = []
+    for query in results.keys():
+        i = 0    
+        for doc_id in results[query]:
+            if i < 10:
+                top_10_results.append({"Query_number": query, "Doc_number": doc_id})
+                i += 1
+            else:
+                break
+    with open("results.csv", mode="w", newline="") as file:
+        fieldnames = ["Query_number", "Doc_number"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for query_result in top_10_results:
+            writer.writerow(query_result)
+
+    
+    relevant_docs = {}
+    with open("dev_query_results_small.csv", newline="") as csvfile:
+        reader = csv.reader(csvfile)
+        next(reader)
+        for row in reader:
+            relevant_docs[row[0]] = row[1]
+            
+
+    total_average_precision = 0
+    total_average_recall = 0
+
+    for query in results.keys():
+        APK = 0
+        ARK = 0
+        for i in range(0, len(results[query])):
+            if i > 9:
+                break
+            doc_id = results[query][i][0].split('.')[0]
+            doc_id = doc_id.split('_')[1]
+            if str(doc_id) == relevant_docs[str(query)]:
+                APK = float(1)/float(i+1)
+                ARK = 1
+                break    
+        total_average_precision += APK
+        total_average_recall += ARK
+    MAPK = total_average_precision/len(query_numbers)
+    MARK = total_average_recall/len(query_numbers)
+    print(MAPK)
+    print(MARK)
+
+    return 0    
 
 if __name__ == "__main__":
     main()  
