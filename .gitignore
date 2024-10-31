@@ -1,4 +1,7 @@
-/full_docs
-/.venv
-/.idea
-/__pycache__
+/big/full_docs
+/big/.venv
+/big/__pycache__
+
+/small/full_docs_small
+/small/.venv
+/small/__pycache__
