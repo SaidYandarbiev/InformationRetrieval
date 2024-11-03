@@ -2,10 +2,10 @@ import nltk
 import string
 import re
 
-nltk.download('stopwords')
-nltk.download('words')
-nltk.download('punkt')
-nltk.download('punkt_tab')
+# nltk.download('stopwords')
+# nltk.download('words')
+# nltk.download('punkt')
+# nltk.download('punkt_tab')
 
 
 class Preprocessor():
@@ -122,7 +122,7 @@ class Preprocessor():
         return [self.stemmer.stem(token) for token in tokens]
 
     # Actual preprocessing part
-    def preprocess(self, text: str) -> list[str]:
+    def preprocess(self, text: str) -> str:
         text = self.remove_underscore(text)
         text = self.remove_hyphen(text)
         text = self.remove_extra_whitespace(text)
@@ -137,4 +137,5 @@ class Preprocessor():
         tokens = self.remove_one_char_tokens(tokens)
         # tokens = self.correct_english_words(tokens)
         tokens = self.stem_tokens(tokens)
+        # whole_text = ' '.join(str(e) for e in tokens)
         return tokens

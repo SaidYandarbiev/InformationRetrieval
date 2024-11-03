@@ -1,7 +1,6 @@
-/big/full_docs
-/big/.venv
-/big/__pycache__
-
-/small/full_docs_small
-/small/.venv
-/small/__pycache__
+/src/full_docs
+/src/.venv
+/src/__pycache__
+/src/inverted_index_docs.pkl
+/src/document_tf_idf.npz
+/.idea
