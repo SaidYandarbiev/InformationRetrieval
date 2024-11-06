@@ -10,6 +10,7 @@ from org.apache.lucene.search import IndexSearcher, TermQuery
 import os
 import pandas as pd
 from preprocess import Preprocessor
+import csv
 
 # Initialize the Lucene VM
 lucene.initVM()
@@ -64,6 +65,7 @@ indexWriter.close()
 
 # Step 2: Query Processing
 # Re-initialize analyzer (for consistency with indexing) and set up query parser
+
 analyzer = StandardAnalyzer()
 query_parser = QueryParser("text_content", analyzer)
 preprocessor = Preprocessor()
@@ -73,6 +75,10 @@ queries = file['Query'].tolist()
 
 new_queries = []
 
+for query in queries:
+    new_queries.append(preprocessor.preprocess(query))
+
+queries = new_queries
 
 # Example queries (different types of queries)
 # query1 = query_parser.parse("Milestones")          # Basic term query
@@ -86,33 +92,89 @@ new_queries = []
 reader = DirectoryReader.open(FSDirectory.open(Paths.get(index_dir)))
 searcher = IndexSearcher(reader)
 
-for i in range(len(queries[0])):
-    query_number = query_numbers[i]
-    query = queries[i]
+# Open CSV file for writing results
+output_file = 'results/results.csv'
+os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    lucene_query = query_parser.parse(query)
-    print(query_number)
-    hits = searcher.search(lucene_query, 10).scoreDocs
-    print(hits)
-    # Optionally, process each hit document
-    for hit in hits:
-        doc_id = hit.doc
-        doc_score = hit.score
-        document = searcher.storedFields().document(doc_id)
+with open(output_file, mode='w', newline='') as csv_file:
+    writer = csv.writer(csv_file)
+    writer.writerow(["Query Number", "Doc ID"])  # Header for CSV
+    
+    # Iterate over each query, search and write results
+    retrieved_docs = {}
+    for i, query_text in enumerate(queries):
+        query_number = query_numbers[i]
         
-        # Print or store results as needed
-        print(f"Query Number: {query_number}, Doc ID: {doc_id}, Score: {doc_score}")
+        # Parse the query
+        lucene_query = query_parser.parse(query_text)
+        
+        # Perform the search and retrieve top 10 results
+        hits = searcher.search(lucene_query, 10).scoreDocs
+        
+        # Store each result for the current query
+        retrieved_docs[query_number] = []
+        for hit in hits:
+            doc_id = hit.doc
+            retrieved_docs[query_number].append(doc_id)
+            
+            # Write query number and doc ID to the CSV file
+            writer.writerow([query_number, doc_id])
 
-# # Example: Perform a search using a TermQuery
-# query = TermQuery(Term("text_content", "Milestones"))  # Modify this term as needed for different queries
-# hits = searcher.search(query, 10).scoreDocs            # Retrieve top 10 results
-
-# # Display the search results
-# for hit in hits:
-#     doc_id = hit.doc
-#     doc = searcher.doc(doc_id)
-#     print(f"Found document with content: {doc.get('text_content')}")
-#     print(f"Score: {hit.score}")
-
-# Close the IndexReader
+# Close the IndexReader after completion
 reader.close()
+
+ground_truth_file = 'dev_query_results_small.csv'  # Update path as needed
+relevant_docs = {}
+with open(ground_truth_file, 'r') as csv_file:
+    reader = csv.reader(csv_file)
+    for row in reader:
+        if row[0] != "Query_number":
+            query_number = int(row[0])
+            doc_id = int(row[1])
+            
+            if query_number not in relevant_docs:
+                relevant_docs[query_number] = set()
+            relevant_docs[query_number].add(doc_id)
+
+# Step 3: Define MAP@K and MAR@K Calculation Functions
+def calculate_mapk(relevant_docs, retrieved_docs, k=10):
+    avg_precisions = []
+    
+    for query, relevant_set in relevant_docs.items():
+        retrieved = retrieved_docs.get(query, [])[:k]
+        relevant_count, precision_sum = 0, 0.0
+        
+        for i, doc_id in enumerate(retrieved, start=1):
+            if doc_id in relevant_set:
+                relevant_count += 1
+                precision_sum += relevant_count / i  # Precision at i for this doc
+
+        # Average Precision for this query
+        if relevant_count > 0:
+            avg_precision = precision_sum / min(len(relevant_set), k)
+            avg_precisions.append(avg_precision)
+        else:
+            avg_precisions.append(0.0)  # No relevant docs found
+
+    # Mean Average Precision at K
+    return sum(avg_precisions) / len(avg_precisions)
+
+def calculate_mark(relevant_docs, retrieved_docs, k=10):
+    recalls = []
+    
+    for query, relevant_set in relevant_docs.items():
+        retrieved = retrieved_docs.get(query, [])[:k]
+        relevant_retrieved = len([doc_id for doc_id in retrieved if doc_id in relevant_set])
+        recall_at_k = relevant_retrieved / len(relevant_set) if relevant_set else 0
+        recalls.append(recall_at_k)
+
+    # Mean Average Recall at K
+    return sum(recalls) / len(recalls)
+
+# Step 4: Compute MAP@K and MAR@K
+k = 10
+mapk = calculate_mapk(relevant_docs, retrieved_docs, k)
+mark = calculate_mark(relevant_docs, retrieved_docs, k)
+
+print(f"MAP@{k}: {mapk:.4f}")
+print(f"MAR@{k}: {mark:.4f}")
