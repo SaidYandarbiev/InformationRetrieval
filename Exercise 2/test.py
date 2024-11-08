@@ -1,180 +1,214 @@
 # Import necessary libraries
+from collections import defaultdict
 import lucene
 from java.nio.file import Paths
+from java.io import StringReader
+from java.util.regex import Pattern  # Import Pattern from java.util.regex
 from org.apache.lucene.store import FSDirectory
 from org.apache.lucene.document import Document, TextField, Field
-from org.apache.lucene.analysis.standard import StandardAnalyzer
-from org.apache.lucene.index import IndexWriterConfig, IndexWriter, DirectoryReader, Term
+from org.apache.lucene.analysis.standard import StandardTokenizer
+from org.apache.lucene.analysis.core import LowerCaseFilter, StopFilter
+from org.apache.lucene.analysis.miscellaneous import ASCIIFoldingFilter
+from org.apache.lucene.analysis.pattern import PatternReplaceFilter
+from org.apache.lucene.analysis import TokenStream
+from org.apache.lucene.analysis.tokenattributes import CharTermAttribute
+from org.apache.lucene.index import IndexWriterConfig, IndexWriter, DirectoryReader
+from org.apache.lucene.search import IndexSearcher
 from org.apache.lucene.queryparser.classic import QueryParser
-from org.apache.lucene.search import IndexSearcher, TermQuery
+from org.apache.lucene.analysis.standard import StandardAnalyzer
 import os
 import pandas as pd
-from preprocess import Preprocessor
 import csv
 
 # Initialize the Lucene VM
 lucene.initVM()
 
+# Define a basic list of common English stopwords
+stopwords = ["a", "an", "the", "and", "or", "not", "is", "are", "in", "of", "to", "with", "on", "for", "by"]
 
-# Step 1: Document Analysis and Indexing
-# Set up the directory for index storage
+# Helper function to preprocess text using custom TokenStream
+def preprocess_text(text, analyzer):
+    #Preprocesses text using a series of filters to remove special characters, 
+    #normalize case, and apply stopword filtering.
+    
+    tokenized_terms = []
+    
+    # Set up the tokenizer
+    tokenizer = StandardTokenizer()
+    tokenizer.setReader(StringReader(text))
+    
+    # Apply filters
+    tokenStream = LowerCaseFilter(tokenizer)  # Lowercase all tokens
+    tokenStream = ASCIIFoldingFilter(tokenStream)  # Remove accents
+    # Create a Java Pattern object for non-alphanumeric characters
+    pattern = Pattern.compile("[^a-zA-Z0-9]")
+    tokenStream = PatternReplaceFilter(tokenStream, pattern, "", True)  # Remove non-alphanumeric
+    tokenStream = StopFilter(tokenStream, StopFilter.makeStopSet(stopwords))  # Remove stopwords using makeStopSet
+    
+    # Collect tokens
+    tokenStream.reset()  # Initialize token stream
+    while tokenStream.incrementToken():
+        tokenized_terms.append(tokenStream.getAttribute(CharTermAttribute.class_).toString())
+    tokenStream.end()
+    tokenStream.close()
+    
+    return " ".join(tokenized_terms)
+
+# Set up directories and configurations
 index_dir = "index"
-txt_file_path = 'full_docs_small/'
+txt_file_path = 'full_docs_small'
 
-exists = True
-
-if os.path.exists(index_dir):
-    print("Index exists.")
-else:
-    print("Index does not exist.")
-    exists = False
+if not os.path.exists(index_dir):
+    os.makedirs(index_dir)
 
 directory = FSDirectory.open(Paths.get(index_dir))
-
-# Define an analyzer
 analyzer = StandardAnalyzer()
-
-# Configure and create the IndexWriter
 indexWriterConfig = IndexWriterConfig(analyzer)
 indexWriter = IndexWriter(directory, indexWriterConfig)
 
+# Indexing function that uses preprocessing with token filters
+def index_txt_file(ind_writer, file):
+    doc = Document()
+    # Extract the document ID (filename without extension)
+    doc_id = os.path.splitext(os.path.basename(file))[0]  # Remove .txt extension
+    with open(file, "r") as f:
+        text_to_index = f.read()
+        # Preprocess the text using custom filters
+        preprocessed_text = preprocess_text(text_to_index, analyzer)
+        doc.add(TextField("text_content", preprocessed_text, Field.Store.YES))
+        doc.add(TextField("doc_id", doc_id, Field.Store.YES))  # Store document ID as a separate field
+        ind_writer.addDocument(doc)
 
-# Document indexing
-if not exists:
-    file_count = sum([1 for filename in os.listdir(txt_file_path) if os.path.isfile(os.path.join(txt_file_path, filename))])
-    curr_file = 0
-    for file in os.listdir(txt_file_path):
-        file_path = os.path.join(txt_file_path, file)
-        if os.path.isfile(file_path) and file_path.endswith('.txt'):
-            curr_file += 1
-            print(curr_file/file_count * 100)
-            with open(txt_file_path + file, "r") as f:
-                text_to_index = f.read()
-                token_stream = analyzer.tokenStream("text_content", text_to_index)
-                token_stream.reset()  # Reset the stream
-                document = Document()
-                document.add(TextField("text_content", token_stream))
-                document.add(TextField("filename", file, TextField.Store.YES))  # Store filename for uniqueness
-                
-                # Add the document to the index
-                indexWriter.addDocument(document)  # Add document to the index
-                indexWriter.commit()  # Commit the changes
-# Close the IndexWriter once all documents are indexed
+# Index all files in the directory
+data_dir = "full_docs_small"
+for file in os.listdir(data_dir):
+    if file.endswith(".txt"):
+        data_path = os.path.join(data_dir, file)
+        print(f"Indexing file: {data_path}")
+        index_txt_file(indexWriter, data_path)
+
 indexWriter.close()
+print("Indexing complete.")
 
-
-# Step 2: Query Processing
-# Re-initialize analyzer (for consistency with indexing) and set up query parser
-
-analyzer = StandardAnalyzer()
-query_parser = QueryParser("text_content", analyzer)
-preprocessor = Preprocessor()
+# Query Processing and Retrieval
 file = pd.read_excel('dev_small_queries.xlsx')
 query_numbers = file['Query number'].tolist()
 queries = file['Query'].tolist()
 
-new_queries = []
+# Preprocess queries with the custom token stream setup
+processed_queries = [preprocess_text(query, analyzer) for query in queries]
 
-for query in queries:
-    new_queries.append(preprocessor.preprocess(query))
-
-queries = new_queries
-
-# Example queries (different types of queries)
-# query1 = query_parser.parse("Milestones")          # Basic term query
-# query2 = query_parser.parse('"Milestones your"~3') # Proximity search
-# query_parser.setAllowLeadingWildcard(True)
-# query3 = query_parser.parse("*lestone*")           # Wildcard search
-
-
-# Step 3: Document Search and Retrieval
 # Open index directory and create IndexReader and IndexSearcher
 reader = DirectoryReader.open(FSDirectory.open(Paths.get(index_dir)))
 searcher = IndexSearcher(reader)
+query_parser = QueryParser("text_content", analyzer)
 
-# Open CSV file for writing results
+# Write search results to a CSV file
 output_file = 'results/results.csv'
-os.makedirs(os.path.dirname(output_file), exist_ok=True)
+retrieved_docs = {}
+for i, query_text in enumerate(processed_queries):
+    query_number = query_numbers[i]
+    lucene_query = query_parser.parse(query_text)
+    
+    # Retrieve top 10 results
+    hits = searcher.search(lucene_query, 10).scoreDocs
+    retrieved_docs[query_number] = []
+    for hit in hits:
+        doc = searcher.storedFields().document(hit.doc)
+        doc_id = doc.get("doc_id")  # Retrieve document ID with "output_" prefix
+        retrieved_docs[query_number].append(doc_id)
 
+# Remove the "output_" prefix from each document ID
+for query_number, doc_ids in retrieved_docs.items():
+    retrieved_docs[query_number] = [doc_id.replace("output_", "") for doc_id in doc_ids]
+
+# Write cleaned document IDs to the CSV file
 with open(output_file, mode='w', newline='') as csv_file:
     writer = csv.writer(csv_file)
-    writer.writerow(["Query Number", "Doc ID"])  # Header for CSV
+    # CSV Header
+    writer.writerow(["Query Number", "Doc ID"])  
     
-    # Iterate over each query, search and write results
-    retrieved_docs = {}
-    for i, query_text in enumerate(queries):
-        query_number = query_numbers[i]
-        
-        # Parse the query
-        lucene_query = query_parser.parse(query_text)
-        
-        # Perform the search and retrieve top 10 results
-        hits = searcher.search(lucene_query, 10).scoreDocs
-        
-        # Store each result for the current query
-        retrieved_docs[query_number] = []
-        for hit in hits:
-            doc_id = hit.doc
-            retrieved_docs[query_number].append(doc_id)
-            
-            # Write query number and doc ID to the CSV file
+    for query_number, doc_ids in retrieved_docs.items():
+        for doc_id in doc_ids:
             writer.writerow([query_number, doc_id])
 
-# Close the IndexReader after completion
 reader.close()
+print("Search and retrieval complete.")
+
 
 ground_truth_file = 'dev_query_results_small.csv'  # Update path as needed
-relevant_docs = {}
-with open(ground_truth_file, 'r') as csv_file:
-    reader = csv.reader(csv_file)
+relevant_docs = defaultdict(list)
+with open(ground_truth_file, newline="") as csvfile:
+    reader = csv.reader(csvfile)
+    next(reader)
     for row in reader:
-        if row[0] != "Query_number":
-            query_number = int(row[0])
-            doc_id = int(row[1])
-            
-            if query_number not in relevant_docs:
-                relevant_docs[query_number] = set()
-            relevant_docs[query_number].add(doc_id)
+        # Append each doc_id to the list for the query
+        relevant_docs[row[0]].append(row[1])  
 
+# Convert keys and values in relevant_docs to strings
+relevant_docs = {str(query): list(map(str, docs)) for query, docs in relevant_docs.items()}
+
+# Convert keys and values in retrieved_docs to strings
+retrieved_docs = {str(query): list(map(str, docs)) for query, docs in retrieved_docs.items()}
+
+print(relevant_docs)
 # Step 3: Define MAP@K and MAR@K Calculation Functions
-def calculate_mapk(relevant_docs, retrieved_docs, k=10):
-    avg_precisions = []
-    
-    for query, relevant_set in relevant_docs.items():
-        retrieved = retrieved_docs.get(query, [])[:k]
-        relevant_count, precision_sum = 0, 0.0
-        
-        for i, doc_id in enumerate(retrieved, start=1):
-            if doc_id in relevant_set:
-                relevant_count += 1
-                precision_sum += relevant_count / i  # Precision at i for this doc
 
-        # Average Precision for this query
-        if relevant_count > 0:
-            avg_precision = precision_sum / min(len(relevant_set), k)
-            avg_precisions.append(avg_precision)
-        else:
-            avg_precisions.append(0.0)  # No relevant docs found
+def apk(actual, predicted, k=10):
+    # Calculate Average Precision at k (AP@K) for a single query
+    if len(predicted) > k:
+        predicted = predicted[:k]
 
-    # Mean Average Precision at K
-    return sum(avg_precisions) / len(avg_precisions)
+    score = 0.0
+    num_hits = 0
 
-def calculate_mark(relevant_docs, retrieved_docs, k=10):
-    recalls = []
-    
-    for query, relevant_set in relevant_docs.items():
-        retrieved = retrieved_docs.get(query, [])[:k]
-        relevant_retrieved = len([doc_id for doc_id in retrieved if doc_id in relevant_set])
-        recall_at_k = relevant_retrieved / len(relevant_set) if relevant_set else 0
-        recalls.append(recall_at_k)
+    for i, p in enumerate(predicted):
+        if p in actual and p not in predicted[:i]:
+            num_hits += 1
+            score += num_hits / (i + 1.0)
 
-    # Mean Average Recall at K
-    return sum(recalls) / len(recalls)
+    return score / min(len(actual), k) if actual else 0.0
 
-# Step 4: Compute MAP@K and MAR@K
-k = 10
-mapk = calculate_mapk(relevant_docs, retrieved_docs, k)
-mark = calculate_mark(relevant_docs, retrieved_docs, k)
 
-print(f"MAP@{k}: {mapk:.4f}")
-print(f"MAR@{k}: {mark:.4f}")
+def ark(actual, predicted, k=10):
+    # Calculate Average Recall at k (AR@K) for a single query
+    if len(predicted) > k:
+        predicted = predicted[:k]
+
+    num_hits = 0
+    recall_scores = []
+
+    for i, p in enumerate(predicted):
+        if p in actual and p not in predicted[:i]:
+            num_hits += 1
+            # Recall calculation
+            recall = num_hits / len(actual)  
+            recall_scores.append(recall)
+
+    return sum(recall_scores) / len(recall_scores) if recall_scores else 0.0
+
+
+def mapk(actual, predicted, k=10):
+    # Calculate Mean Average Precision at k (MAP@K) across all queries 
+    return sum(apk(a, p, k) for a, p in zip(actual, predicted)) / len(actual)
+
+
+def mark(actual, predicted, k=10):
+    # Calculate Mean Average Recall at k (MAR@K) across all queries 
+    return sum(ark(a, p, k) for a, p in zip(actual, predicted)) / len(actual)
+
+
+def calculate_MAPK_MARK(relevant_docs, results, query_numbers):
+    for k in [1,3,5, 10]:
+    # Format relevant documents to match the predicted docs structure
+        actual_docs = [relevant_docs.get(str(query_id), []) for query_id in query_numbers]
+        predicted_docs_list = list(results.values())
+
+        # Calculate MAP@K and MAR@K
+        map_at_k = mapk(actual_docs, predicted_docs_list, k)
+        mar_at_k = mark(actual_docs, predicted_docs_list, k)
+
+        print(f"MAP@{k}: {map_at_k}")
+        print(f"MAR@{k}: {mar_at_k}")
+
+calculate_MAPK_MARK(relevant_docs, retrieved_docs, query_numbers)
