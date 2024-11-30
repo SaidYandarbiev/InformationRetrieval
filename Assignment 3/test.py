@@ -26,7 +26,7 @@ def main():
             file_path = os.path.join(directory_path, file_name)
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
-                content = preprocessor.preprocess(content)
+                # content = preprocessor.preprocess(content)
                 documents.append(content)
                 file_names.append(file_name)  # Use filenames as identifiers
 
@@ -40,7 +40,8 @@ def main():
     # Read queries and their numbers
     file = pd.read_excel('dev_small_queries.xlsx')
     query_numbers = file['Query number'].tolist()
-    queries = [preprocessor.preprocess(query) for query in file['Query'].tolist()]
+    # queries = [preprocessor.preprocess(query) for query in file['Query'].tolist()]]
+    queries = file['Query'].tolist()
     
     # Load ground truth and map queries to relevant documents
     ground_truth_df = pd.read_csv('dev_query_results_small.csv')
