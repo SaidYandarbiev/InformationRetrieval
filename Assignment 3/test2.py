@@ -35,23 +35,63 @@ def load_data(directory_path, query_file, ground_truth_file, max_queries=1000):
     return documents, file_names, queries, query_numbers, relevant_docs
 
 
-def compute_embeddings(documents, model, embedding_file, batch_size=512):
-    # Load or compute document embeddings
+def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_length=512, overlap=50, batch_size=512):
+    """
+    Compute embeddings for documents, handling documents longer than the model's max sequence length.
+    """
     if os.path.exists(embedding_file):
-        return np.load(embedding_file)
+        document_embeddings = np.load(embedding_file)
+        # Reshape to ensure 2D array
+        if document_embeddings.ndim == 3 and document_embeddings.shape[1] == 1:
+            document_embeddings = document_embeddings.squeeze(1)
+        print("Loaded precomputed embeddings:", document_embeddings.shape)
+        return document_embeddings
 
-    document_loader = DataLoader(documents, batch_size=batch_size, shuffle=False)
-    embeddings = []
-    for batch in document_loader:
+    # Function to chunk a long document into smaller parts
+    def chunk_document(doc, max_seq_length, overlap):
+        tokens = doc.split()  # Tokenize document by whitespace
+        chunks = []
+        for i in range(0, len(tokens), max_seq_length - overlap):
+            chunk = tokens[i:i + max_seq_length]
+            chunks.append(" ".join(chunk))
+        return chunks
+
+    # Prepare chunks
+    all_chunks = []
+    doc_chunk_mapping = []  # To keep track of which chunks belong to which documents
+    for doc_idx, doc in enumerate(documents):
+        chunks = chunk_document(doc, max_seq_length, overlap)
+        all_chunks.extend(chunks)
+        doc_chunk_mapping.append(len(chunks))  # Number of chunks per document
+
+    # Encode chunks in batches
+    print("Total number of chunks to encode:", len(all_chunks))
+    chunk_loader = DataLoader(all_chunks, batch_size=batch_size, shuffle=False)
+    chunk_embeddings = []
+    for batch in chunk_loader:
         batch_embeddings = model.encode(batch, convert_to_tensor=True).cpu().numpy()
-        embeddings.extend(batch_embeddings)
+        chunk_embeddings.extend(batch_embeddings)
 
-    embeddings = np.array(embeddings)
-    np.save(embedding_file, embeddings)
-    return embeddings
+    # Aggregate embeddings for each document
+    document_embeddings = []
+    start_idx = 0
+    for num_chunks in doc_chunk_mapping:
+        doc_chunks = chunk_embeddings[start_idx:start_idx + num_chunks]
+        aggregated_embedding = np.mean(doc_chunks, axis=0)  # Use mean pooling for aggregation
+        document_embeddings.append(aggregated_embedding)
+        start_idx += num_chunks
+
+    # Ensure proper shape and save
+    document_embeddings = np.array(document_embeddings)
+    print("Shape of document embeddings after aggregation:", document_embeddings.shape)
+    assert document_embeddings.ndim == 2, "Final document embeddings must be a 2D array (num_docs, embedding_size)"
+    np.save(embedding_file, document_embeddings)
+    return document_embeddings
 
 
 def build_inverted_index(embeddings, num_clusters):
+    # Validate that embeddings are 2D
+    assert embeddings.ndim == 2, "Embeddings must be a 2D array with shape (num_docs, embedding_size)"
     kmeans = KMeans(n_clusters=num_clusters, random_state=42)
     labels = kmeans.fit_predict(embeddings)
     centroids = kmeans.cluster_centers_
@@ -122,8 +162,8 @@ def main():
     # Load embedding model
     model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Compute document embeddings in batches
-    document_embeddings = compute_embeddings(documents, model, embedding_file)
+    # Compute document embeddings with sequence length extension
+    document_embeddings = compute_embeddings_with_chunks(documents, model, embedding_file)
 
     # Build inverted index
     labels, centroids, kmeans = build_inverted_index(document_embeddings, num_clusters)
