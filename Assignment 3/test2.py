@@ -79,14 +79,14 @@ def search_with_inverted_index(query_embeddings, centroids, kmeans, doc_embeddin
     return results
 
 
-def evaluate(results, relevant_docs, k_values):
+def evaluate(results, relevant_docs, query_numbers, k_values):
     precision_at_k = {k: [] for k in k_values}
     recall_at_k = {k: [] for k in k_values}
-
     for query_idx, retrieved_docs in results.items():
+        query_number = query_numbers[query_idx]  # Map index to query number
         retrieved_doc_ids = [doc[0].split('_')[-1].replace('.txt', '') for doc in retrieved_docs]
-        true_relevant = relevant_docs.get(query_idx + 1, [])  # query_idx is 0-based
-
+        true_relevant = relevant_docs.get(query_number, [])  # Use actual query number for lookup
+        
         for k in k_values:
             top_k_docs = retrieved_doc_ids[:k]
             true_positive = len(set(top_k_docs) & set(true_relevant))
@@ -137,7 +137,7 @@ def main():
     )
 
     # Evaluate results
-    mean_precision, mean_recall = evaluate(results, relevant_docs, k_values)
+    mean_precision, mean_recall = evaluate(results, relevant_docs, query_numbers, k_values)
 
     # Print results
     print("\nMean Precision@k:")
