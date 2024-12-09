@@ -47,7 +47,6 @@ def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_len
         print("Loaded precomputed embeddings:", document_embeddings.shape)
         return document_embeddings
 
-    # Function to chunk a long document into smaller parts
     def chunk_document(doc, max_seq_length, overlap):
         tokens = doc.split()  # Tokenize document by whitespace
         chunks = []
@@ -76,8 +75,11 @@ def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_len
     document_embeddings = []
     start_idx = 0
     for num_chunks in doc_chunk_mapping:
-        doc_chunks = chunk_embeddings[start_idx:start_idx + num_chunks]
-        aggregated_embedding = np.mean(doc_chunks, axis=0)  # Use mean pooling for aggregation
+        if num_chunks == 0:  # Handle empty documents
+            aggregated_embedding = np.zeros(model.get_sentence_embedding_dimension())
+        else:
+            doc_chunks = chunk_embeddings[start_idx:start_idx + num_chunks]
+            aggregated_embedding = np.mean(doc_chunks, axis=0) if len(doc_chunks) > 0 else np.zeros(model.get_sentence_embedding_dimension())
         document_embeddings.append(aggregated_embedding)
         start_idx += num_chunks
 
@@ -87,6 +89,7 @@ def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_len
     assert document_embeddings.ndim == 2, "Final document embeddings must be a 2D array (num_docs, embedding_size)"
     np.save(embedding_file, document_embeddings)
     return document_embeddings
+
 
 
 def build_inverted_index(embeddings, num_clusters):
