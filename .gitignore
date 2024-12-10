@@ -5,6 +5,13 @@
 /src/document_tf_idf.npz
 /.idea
 /Exercise 2
-/Assignment 3
+/Assignment 3/__pycache__
+/Assignment 3/.venv
+/Assignment 3/venv
+/Assignment 3/Practical_lecture_2
+/Assignment 3/*.npy
+
 /full_docs
 /full_docs_small
+/full_docs_medium
+

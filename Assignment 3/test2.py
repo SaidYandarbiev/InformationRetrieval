@@ -1,3 +1,4 @@
+import csv
 import os
 import pandas as pd
 from sklearn.cluster import KMeans
@@ -21,7 +22,8 @@ def load_data(directory_path, query_file, ground_truth_file, max_queries=1000):
                 file_names.append(file_name)
 
     # Load queries
-    query_df = pd.read_excel(query_file, header=None, names=["QueryNumber", "Query"])
+    # query_df = pd.read_excel(query_file, header=None, names=["QueryNumber", "Query"])
+    query_df = pd.read_csv(query_file, header=None, names=["QueryNumber", "Query"], sep="\t")
     queries = query_df['Query'].tolist()[:max_queries]
     query_numbers = query_df['QueryNumber'].tolist()[:max_queries]
 
@@ -58,7 +60,8 @@ def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_len
     # Prepare chunks
     all_chunks = []
     doc_chunk_mapping = []  # To keep track of which chunks belong to which documents
-    for doc_idx, doc in enumerate(documents):
+    print("Preparing document chunks...")
+    for doc_idx, doc in enumerate(tqdm(documents, desc="Chunking documents")):
         chunks = chunk_document(doc, max_seq_length, overlap)
         all_chunks.extend(chunks)
         doc_chunk_mapping.append(len(chunks))  # Number of chunks per document
@@ -67,14 +70,15 @@ def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_len
     print("Total number of chunks to encode:", len(all_chunks))
     chunk_loader = DataLoader(all_chunks, batch_size=batch_size, shuffle=False)
     chunk_embeddings = []
-    for batch in chunk_loader:
+    for batch in tqdm(chunk_loader, desc="Encoding chunks"):
         batch_embeddings = model.encode(batch, convert_to_tensor=True).cpu().numpy()
         chunk_embeddings.extend(batch_embeddings)
 
     # Aggregate embeddings for each document
     document_embeddings = []
     start_idx = 0
-    for num_chunks in doc_chunk_mapping:
+    print("Aggregating chunk embeddings into document embeddings...")
+    for num_chunks in tqdm(doc_chunk_mapping, desc="Aggregating embeddings"):
         if num_chunks == 0:  # Handle empty documents
             aggregated_embedding = np.zeros(model.get_sentence_embedding_dimension())
         else:
@@ -91,7 +95,6 @@ def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_len
     return document_embeddings
 
 
-
 def build_inverted_index(embeddings, num_clusters):
     # Validate that embeddings are 2D
     assert embeddings.ndim == 2, "Embeddings must be a 2D array with shape (num_docs, embedding_size)"
@@ -103,7 +106,8 @@ def build_inverted_index(embeddings, num_clusters):
 
 def search_with_inverted_index(query_embeddings, centroids, kmeans, doc_embeddings, file_names, top_k_clusters, top_docs):
     results = {}
-    for idx, query_vec in enumerate(tqdm(query_embeddings)):
+    print("Searching queries using inverted index...")
+    for idx, query_vec in enumerate(tqdm(query_embeddings, desc="Processing queries")):
         # Compute distances to centroids
         cluster_distances = cdist([query_vec], centroids, metric="cosine")[0]
         top_clusters = np.argsort(cluster_distances)[:top_k_clusters]
@@ -146,10 +150,17 @@ def evaluate(results, relevant_docs, query_numbers, k_values):
 
 def main():
     # File paths
-    directory_path = "../full_docs_small"
-    query_file = "dev_small_queries.xlsx"
-    ground_truth_file = "dev_query_results_small.csv"
+
+    # directory_path = "../full_docs_small"
+    # query_file = "dev_small_queries.xlsx"
+    # ground_truth_file = "dev_query_results_small.csv"
+    # embedding_file = "document_embeddings_inverted_klein_origineel.npy"
+
+    directory_path = "../full_docs"
+    query_file = "dev_queries.tsv"
+    ground_truth_file = "dev_query_results.csv"
     embedding_file = "document_embeddings_inverted.npy"
+
 
     # Parameters
     num_clusters = 10
@@ -181,6 +192,15 @@ def main():
 
     # Evaluate results
     mean_precision, mean_recall = evaluate(results, relevant_docs, query_numbers, k_values)
+
+    # Save top results to CSV
+    with open("result_klein_origineel.csv", mode="w", newline="") as file:
+        fieldnames = ["Query_number", "Doc_number"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for query_num, docs in results.items():
+            for doc_id, _ in docs:
+                writer.writerow({"Query_number": query_num, "Doc_number": doc_id})
 
     # Print results
     print("\nMean Precision@k:")
