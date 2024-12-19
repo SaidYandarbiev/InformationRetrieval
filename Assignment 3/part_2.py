@@ -1,16 +1,18 @@
 import csv
 import os
 import pandas as pd
-from sklearn.cluster import KMeans
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-from scipy.spatial.distance import cdist
 import numpy as np
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 import torch
 
-def load_data(directory_path, query_file, ground_truth_file, max_queries=1000):
+from sklearn.cluster import KMeans
+from sentence_transformers import SentenceTransformer
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+
+# def load_data(directory_path, query_file, ground_truth_file, max_queries=1000):
+def load_data(directory_path, query_file):
+
     # Load documents
     documents = []
     file_names = []
@@ -22,25 +24,25 @@ def load_data(directory_path, query_file, ground_truth_file, max_queries=1000):
                 file_names.append(file_name)
 
     # Load queries
-    query_df = pd.read_excel(query_file, names=["QueryNumber", "Query"])
-    # query_df = pd.read_csv(query_file, names=["QueryNumber", "Query"], header=0, sep="\t")
-    queries = query_df['Query'].tolist()[:max_queries]
-    query_numbers = query_df['QueryNumber'].tolist()[:max_queries]
+    # query_df = pd.read_excel(query_file, names=["QueryNumber", "Query"])
+    query_df = pd.read_csv(query_file, names=["QueryNumber", "Query"], header=0, sep="\t")
+    queries = query_df['Query'].tolist()
+    query_numbers = query_df['QueryNumber'].tolist()
 
     # Load ground truth
-    ground_truth_df = pd.read_csv(ground_truth_file)
-    relevant_docs = {
-        query_number: group['doc_number'].astype(str).tolist()
-        for query_number, group in ground_truth_df.groupby('Query_number')
-    }
+    # ground_truth_df = pd.read_csv(ground_truth_file)
+    # relevant_docs = {
+    #     query_number: group['doc_number'].astype(str).tolist()
+    #     for query_number, group in ground_truth_df.groupby('Query_number')
+    # }
 
-    return documents, file_names, queries, query_numbers, relevant_docs
+    # return documents, file_names, queries, query_numbers, relevant_docs
+    # We don't want to make use of the ground truth file for test set of queries since this is not provided
+    return documents, file_names, queries, query_numbers
 
 
+# Compute embeddings for documents, handling documents longer than the model's max sequence length.
 def compute_embeddings_with_chunks(documents, model, embedding_file, max_seq_length=512, overlap=50, batch_size=512):
-    """
-    Compute embeddings for documents, handling documents longer than the model's max sequence length.
-    """
     if os.path.exists(embedding_file):
         document_embeddings = np.load(embedding_file)
         # Reshape to ensure 2D array
@@ -103,6 +105,8 @@ def build_inverted_index(embeddings, num_clusters):
     centroids = kmeans.cluster_centers_
     return labels, centroids, kmeans
 
+
+# Optimized function to search queries using GPU for cosine similarity.
 def search_with_inverted_index(
     query_embeddings: np.ndarray, 
     centroids: np.ndarray, 
@@ -112,9 +116,6 @@ def search_with_inverted_index(
     top_k_clusters: int, 
     top_docs: int
 ):
-    """
-    Optimized function to search queries using GPU for cosine similarity.
-    """
     # Move centroids and document embeddings to GPU
     centroids_gpu = torch.tensor(centroids, dtype=torch.float32).cuda()
     doc_embeddings_gpu = torch.tensor(doc_embeddings, dtype=torch.float32).cuda()
@@ -144,6 +145,7 @@ def search_with_inverted_index(
 
     return results
 
+
 def evaluate(results, relevant_docs, query_numbers, k_values):
     precision_at_k = {k: [] for k in k_values}
     recall_at_k = {k: [] for k in k_values}
@@ -169,18 +171,17 @@ def evaluate(results, relevant_docs, query_numbers, k_values):
 def main():
     # File paths
 
-    directory_path = "../full_docs_small"
-    query_file = "dev_small_queries.xlsx"
-    ground_truth_file = "dev_query_results_small.csv"
-    embedding_file = "document_embeddings_inverted_klein.npy"
+    # directory_path = "../full_docs_small"
+    # query_file = "dev_small_queries.xlsx"
+    # ground_truth_file = "dev_query_results_small.csv"
+    # embedding_file = "document_embeddings_inverted_klein.npy"
 
     # directory_path = "../full_docs_medium"
 
-    # directory_path = "../full_docs"
-    # query_file = "dev_queries.tsv"
+    directory_path = "../full_docs"
+    query_file = "dev_queries.tsv"
     # ground_truth_file = "dev_query_results.csv"
-    # embedding_file = "document_embeddings_inverted.npy"
-
+    embedding_file = "document_embeddings_inverted.npy"
 
     # Parameters
     num_clusters = 1000
@@ -189,8 +190,13 @@ def main():
     k_values = [1, 3, 5, 10]
 
     # Load data
-    documents, file_names, queries, query_numbers, relevant_docs = load_data(
-        directory_path, query_file, ground_truth_file, max_queries=1000
+    # documents, file_names, queries, query_numbers, relevant_docs = load_data(
+    #     directory_path, query_file, ground_truth_file, max_queries=1000
+    # )
+
+    # Load data without max queries (for test set of queries)
+    documents, file_names, queries, query_numbers = load_data(
+        directory_path, query_file
     )
 
     # Load embedding model
@@ -211,10 +217,10 @@ def main():
     )
 
     # Evaluate results
-    mean_precision, mean_recall = evaluate(results, relevant_docs, query_numbers, k_values)
+    # mean_precision, mean_recall = evaluate(results, relevant_docs, query_numbers, k_values)
 
     # Save top results to CSV
-    with open("result_klein.csv", mode="w", newline="") as file:
+    with open("result.csv", mode="w", newline="") as file:
             fieldnames = ["Query_number", "Doc_number"]
             writer = csv.DictWriter(file, fieldnames=fieldnames)
             writer.writeheader()
@@ -225,12 +231,12 @@ def main():
                     writer.writerow({"Query_number": query_number, "Doc_number": doc_id})
 
     # Print results
-    print("\nMean Precision@k:")
-    for k in k_values:
-        print(f"  Precision@{k}: {mean_precision.get(k, 0):.4f}")
-    print("\nMean Recall@k:")
-    for k in k_values:
-        print(f"  Recall@{k}: {mean_recall.get(k, 0):.4f}")
+    # print("\nMean Precision@k:")
+    # for k in k_values:
+    #     print(f"  Precision@{k}: {mean_precision.get(k, 0):.4f}")
+    # print("\nMean Recall@k:")
+    # for k in k_values:
+    #     print(f"  Recall@{k}: {mean_recall.get(k, 0):.4f}")
 
 
 if __name__ == "__main__":
